@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Mock artefacts / local test output
+mock_hostkey_*
+examples/report_*.json
+*.log
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

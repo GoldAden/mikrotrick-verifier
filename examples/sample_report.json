@@ -1,0 +1,29 @@
+{
+  "tool": "mikrotrick_termux",
+  "cve": "CVE-2026-67279",
+  "target": "127.0.0.1:39675",
+  "timestamp_utc": "2026-10-17T20:56:15.492106+00:00",
+  "banner": "SSH-2.0-paramiko_5.0.0",
+  "baseline": {
+    "connected": true,
+    "conn_err": "",
+    "rekey_ok": null,
+    "rekey_err": "",
+    "chan": true,
+    "chan_err": "",
+    "out": ""
+  },
+  "rekey_test": {
+    "connected": true,
+    "conn_err": "",
+    "rekey_ok": true,
+    "rekey_err": "",
+    "chan": true,
+    "chan_err": "",
+    "out": ""
+  },
+  "verdict": "VULNERABLE",
+  "verdict_ar": "مُصاب — تجاوز المصادقة مؤكَّد على هذا الجهاز",
+  "rationale": "بعد إعادة التفاوض قبل المصادقة، قبل الخادم فتح قناة جلسة رغم غياب المصادقة — سلوك CVE-2026-67279 على بناء غير مُرقَّع.",
+  "safety": "non-destructive; no accounts; no files written; no persistence"
+}
