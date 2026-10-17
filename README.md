@@ -19,9 +19,13 @@
 
 ### تشغيل سريع على Termux (الأندرويد)
 
-انسخ محتوى [`install_termux.sh`](install_termux.sh) والصقه في Termux، أو نفّذ:
+انسخ محتوى [`install_termux.sh`](install_termux.sh) والصقه في Termux، ثم:
 
 ```bash
+# أولًا: تأكد أن الأداة تعمل — بلا شبكة وبلا أي جهاز
+python mtx.py --selftest          # -> 3/3
+
+# ثانيًا: افحص جهازك
 python mtx.py <عنوان-الجهاز> --port 22
 ```
 
@@ -64,10 +68,13 @@ git clone https://github.com/<you>/mikrotrick-verifier.git
 cd mikrotrick-verifier
 python -m pip install -r requirements.txt
 
-# 1) offline self-test first (no network, no device)
+# 1) prove the tool works first -- offline, no device, no network
+python mtx.py --selftest             # -> 3/3
+
+# 2) offline logic self-test (same logic, full harness)
 python tests/selftest_inproc.py      # -> 3/3
 
-# 2) scan your own / authorized device
+# 3) scan your own / authorized device
 python mtx.py <host> --port 22 --timeout 8
 python mtx.py <host> --json report.json
 ```
@@ -107,6 +114,7 @@ CVE-2023-30799 / CVE-2023-32154).
 ```
 mikrotrick-verifier/
 ├── mtx.py                     # single-file, paste-in-place verifier (Termux-friendly)
+│                              #   --selftest proves it works offline; --json / --console
 ├── install_termux.sh          # one-paste installer for Termux
 ├── tools/
 │   ├── mikrotrick_check.py    # full-featured verifier (bundled checks, JSON reports)

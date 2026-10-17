@@ -3,7 +3,7 @@ mkdir -p ~/mikrotrick && cd ~/mikrotrick && cat > mtx.py << 'PYEOF'
 # -*- coding: utf-8 -*-
 # mtx.py — تحقق غير تدميري من CVE-2026-67279 (MikroTrick) — نسخة Termux
 # السلامة: لا حسابات، لا كتابة ملفات على الهدف، لا أوامر إلا مع --console (قراءة فقط).
-import argparse, json, socket, sys, time
+import argparse, json, socket, sys, threading, time
 from datetime import datetime, timezone
 
 try:
@@ -17,6 +17,128 @@ except ImportError:
     print("      pkg install python-cryptography rust binutils libffi openssl -y")
     print("      pip install paramiko\n")
     sys.exit(3)
+
+# ---------------------------------------------------------------------------
+#  لاحقة الفحص الذاتي (--selftest): خادمات SSH مصغّرة داخل نفس العملية.
+#  تختبر منطق الحكم بلا أي شبكة خارجية ولا أي جهاز حقيقي.
+# ---------------------------------------------------------------------------
+if __name__ == "__main__":
+    _sr = globals()
+    try:
+        import paramiko as _pmk
+        from paramiko import Transport as _T, ServerInterface as _SI
+        from paramiko import AUTH_SUCCESSFUL as _AS, OPEN_SUCCEEDED as _OS
+
+        class _Srv(_SI):
+            def check_auth_password(self, u, p):
+                return _AS
+
+            def check_channel_request(self, k, i):
+                return _OS if k == "session" else _pmk.OPEN_FAILED_ADMINISTRATIVELY_PROHIBITED
+
+            def check_channel_pty_request(self, *a, **k):
+                return True
+
+            def check_channel_shell_request(self, c):
+                return True
+
+            def get_allowed_auths(self, u):
+                return "password,publickey"
+
+        class _Vuln(_T):
+            def _ensure_authed(self, ptype, message):
+                return None
+
+        class _Patched(_T):
+            def _parse_kex_init(self, m):
+                if self.initial_kex_done and not self.is_authenticated():
+                    raise _pmk.SSHException("pre-auth rekey rejected")
+                return super()._parse_kex_init(m)
+
+        _sr["_Srv"], _sr["_Vuln"] = _Srv, _Vuln
+    except Exception:
+        _sr["_Srv"] = _sr["_Vuln"] = None
+
+
+def selftest():
+    """فحص ذاتي محلي: 3 خادمات وهمية (غير مُرقَّع / مُرقَّع / عادي)."""
+    global _Srv, _Vuln, _Patched
+    try:
+        import logging
+        logging.getLogger("paramiko").setLevel(logging.CRITICAL)
+    except Exception:
+        pass
+    if _Srv is None:
+        print("[!] تعذّر تحميل مكوّنات الفحص الذاتي.")
+        return 3
+    cases = [
+        ("غير مُرقَّع", _Vuln, "VULNERABLE"),
+        ("مُرقَّع", _Patched, "PATCHED_SIGNATURE"),
+        ("عادي", paramiko.Transport, "NOT_CONFIRMED"),
+    ]
+    key = paramiko.RSAKey.generate(2048)
+    ok = 0
+    print(L)
+    print(" فحص ذاتي محلي — بلا شبكة وبلا أي جهاز حقيقي")
+    print(L)
+    for name, cls, exp in cases:
+        ls = socket.socket()
+        ls.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        ls.bind(("127.0.0.1", 0))
+        port = ls.getsockname()[1]
+        ls.listen(8)
+        ls.settimeout(0.3)
+        stop = threading.Event()
+
+        def worker(cs, cls=cls):
+            try:
+                tt = cls(cs)
+                tt.add_server_key(key)
+                tt.start_server(server=_Srv())
+                end = time.time() + 8
+                while tt.is_active() and time.time() < end and not stop.is_set():
+                    time.sleep(0.15)
+                tt.close()
+            except Exception:
+                pass
+            finally:
+                try:
+                    cs.close()
+                except Exception:
+                    pass
+
+        def loop():
+            while not stop.is_set():
+                try:
+                    cs, _ = ls.accept()
+                except socket.timeout:
+                    continue
+                except Exception:
+                    break
+                threading.Thread(target=worker, args=(cs,), daemon=True).start()
+            try:
+                ls.close()
+            except Exception:
+                pass
+
+        threading.Thread(target=loop, daemon=True).start()
+        time.sleep(0.4)
+        b = probe("127.0.0.1", port, 5, False)
+        r = probe("127.0.0.1", port, 5, True)
+        v, _ = decide(b, r)
+        good = v == exp
+        ok += good
+        print("  %-10s المتوقع %-18s الناتج %-18s %s"
+              % (name, exp, v, "PASS ✓" if good else "FAIL ✗"))
+        stop.set()
+        time.sleep(0.25)
+    print(L)
+    print(" النتيجة: %d/3" % ok)
+    print(" 3/3 = الأداة ومنطق الحكم سليمان تمامًا." if ok == 3 else
+          " [!] النتيجة غير كاملة — أعد التشغيل قبل لمس أي جهاز.")
+    print(L)
+    return 0 if ok == 3 else 1
+
 
 L = "=" * 58
 AR = {
@@ -127,13 +249,20 @@ def yn(v):
 
 def main():
     ap = argparse.ArgumentParser(description="تحقق غير تدميري من CVE-2026-67279 (Termux)")
-    ap.add_argument("host", help="عنوان جهاز RouterOS الذي تملكه أو لديك تفويض باختباره")
+    ap.add_argument("host", nargs="?", help="عنوان جهاز RouterOS الذي تملكه أو لديك تفويض باختباره")
+    ap.add_argument("--selftest", action="store_true",
+                    help="فحص ذاتي محلي بلا شبكة (شغّله أول مرة للتأكد أن الأداة تعمل)")
     ap.add_argument("--port", type=int, default=22, help="منفذ SSH، افتراضي 22")
     ap.add_argument("--timeout", type=float, default=8.0, help="مهلة الاتصال بالثواني")
     ap.add_argument("--console", action="store_true", help="اختياري: أمر قراءة فقط على جهاز مُصاب")
     ap.add_argument("--cmd", default="/system resource print", help="الأمر في وضع --console")
     ap.add_argument("--json", dest="jo", default="", help="حفظ التقرير بصيغة JSON")
     a = ap.parse_args()
+
+    if a.selftest:
+        return selftest()
+    if not a.host:
+        ap.error("مطلوب عنوان الجهاز، أو استخدم --selftest للفحص الذاتي")
 
     print(L)
     print(" mikrotrick — تحقق غير تدميري من CVE-2026-67279")
